@@ -49,7 +49,7 @@ export default function TokenUsageWeek({ data }: Props) {
         ~${(data?.estimatedCost || 0).toFixed(2)} estimated
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginBottom: '0.75rem' }}>
+      <div className="week-stats-grid">
         <StatItem label="Sessions" value={(data?.sessions || 0).toString()} />
         <StatItem label="Messages" value={formatTokens(data?.messages || 0)} />
         <StatItem label="Streak" value={`${data?.streak || 0}d`} color="#f59e0b" />

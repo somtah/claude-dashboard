@@ -6,12 +6,7 @@ interface Props {
 
 export default function AccountSection({ account }: Props) {
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(3, 1fr)',
-      gap: '1rem',
-      marginBottom: '1rem',
-    }}>
+    <div className="account-grid">
       <InfoCard label="EMAIL" value={account?.email || 'Unknown'} />
       <InfoCard label="ORGANIZATION" value={account?.organization || 'Unknown'} />
       <InfoCard label="PLAN" value={account?.plan || 'Pro'} isActive />

@@ -24,14 +24,7 @@ export default function DashboardHeader({ lastUpdated, onRefresh, loading }: Pro
   })
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: '1.5rem',
-      paddingBottom: '1rem',
-      borderBottom: '1px solid #222222',
-    }}>
+    <div className="dashboard-header">
       <div>
         <div style={{
           fontSize: '1.25rem',
@@ -46,7 +39,7 @@ export default function DashboardHeader({ lastUpdated, onRefresh, loading }: Pro
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div className="header-actions">
         <div style={{ color: '#555555', fontSize: '0.75rem' }}>
           Updated {timeStr}
         </div>
