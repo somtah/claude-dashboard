@@ -1,3 +1,5 @@
+import { useLang } from '@/context/LangContext'
+
 interface Props {
   data?: {
     tokens: number
@@ -14,6 +16,7 @@ function formatTokens(n: number): string {
 }
 
 export default function TokenUsageTotal({ data }: Props) {
+  const { tr, fmt } = useLang()
   return (
     <div style={{
       background: '#111111',
@@ -28,7 +31,7 @@ export default function TokenUsageTotal({ data }: Props) {
         textTransform: 'uppercase',
         marginBottom: '0.75rem',
       }}>
-        Total
+        {tr.total}
       </div>
 
       <div style={{
@@ -43,14 +46,13 @@ export default function TokenUsageTotal({ data }: Props) {
         {formatTokens(data?.tokens || 0)}
       </div>
       <div style={{ color: '#555555', fontSize: '0.75rem', marginBottom: '1rem' }}>
-        total tokens
+        {tr.totalTokens}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem' }}>
-        <StatItem label="USD equiv" value={`~$${(data?.estimatedCost || 0).toFixed(2)}`} />
-        <StatItem label="THB equiv" value={`~฿${Math.round((data?.estimatedCost || 0) * 33).toLocaleString()}`} color="#22c55e" />
-        <StatItem label="Sessions" value={(data?.sessions || 0).toString()} />
-        <StatItem label="Messages" value={formatTokens(data?.messages || 0)} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+        <StatItem label={tr.costEquiv} value={fmt(data?.estimatedCost || 0)} />
+        <StatItem label={tr.sessions} value={(data?.sessions || 0).toString()} />
+        <StatItem label={tr.messages} value={formatTokens(data?.messages || 0)} />
       </div>
     </div>
   )

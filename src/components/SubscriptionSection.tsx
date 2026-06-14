@@ -1,3 +1,5 @@
+import { useLang } from '@/context/LangContext'
+
 interface Props {
   data?: {
     sessionUsage: number
@@ -7,6 +9,7 @@ interface Props {
 }
 
 export default function SubscriptionSection({ data }: Props) {
+  const { tr } = useLang()
   return (
     <div style={{
       background: '#111111',
@@ -22,22 +25,22 @@ export default function SubscriptionSection({ data }: Props) {
         textTransform: 'uppercase',
         marginBottom: '1.5rem',
       }}>
-        Subscription Usage
+        {tr.subscriptionUsage}
       </div>
 
       <div className="subscription-grid">
         <CircularGauge
-          label="Session"
+          label={tr.session}
           percentage={data?.sessionUsage || 0}
           color="#06b6d4"
         />
         <CircularGauge
-          label="Weekly"
+          label={tr.weekly}
           percentage={data?.weeklyUsage || 0}
           color="#f97316"
         />
         <CircularGauge
-          label="Weekly Sonnet"
+          label={tr.weeklySonnet}
           percentage={data?.weeklySonnet || 0}
           color="#a855f7"
         />

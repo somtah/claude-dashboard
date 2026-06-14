@@ -1,5 +1,6 @@
 import { TokenUsage } from '@/lib/types'
 import { ArrowUp, ArrowDown } from 'lucide-react'
+import { useLang } from '@/context/LangContext'
 
 interface Props {
   data?: TokenUsage
@@ -12,6 +13,7 @@ function formatTokens(n: number): string {
 }
 
 export default function TokenUsageToday({ data }: Props) {
+  const { tr } = useLang()
   const input = data?.input || 0
   const output = data?.output || 0
   const cacheRead = data?.cacheRead || 0
@@ -31,14 +33,14 @@ export default function TokenUsageToday({ data }: Props) {
         textTransform: 'uppercase',
         marginBottom: '1rem',
       }}>
-        Today
+        {tr.today}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-        <UsageItem icon={<ArrowDown size={12} />} label="Input" value={formatTokens(input)} color="#06b6d4" />
-        <UsageItem icon={<ArrowUp size={12} />} label="Output" value={formatTokens(output)} color="#a855f7" />
-        <UsageItem icon={<ArrowDown size={12} />} label="Cache Read" value={formatTokens(cacheRead)} color="#22c55e" />
-        <UsageItem icon={<ArrowUp size={12} />} label="Cache Write" value={formatTokens(cacheWrite)} color="#f97316" />
+        <UsageItem icon={<ArrowDown size={12} />} label={tr.input} value={formatTokens(input)} color="#06b6d4" />
+        <UsageItem icon={<ArrowUp size={12} />} label={tr.output} value={formatTokens(output)} color="#a855f7" />
+        <UsageItem icon={<ArrowDown size={12} />} label={tr.cacheRead} value={formatTokens(cacheRead)} color="#22c55e" />
+        <UsageItem icon={<ArrowUp size={12} />} label={tr.cacheWrite} value={formatTokens(cacheWrite)} color="#f97316" />
       </div>
     </div>
   )

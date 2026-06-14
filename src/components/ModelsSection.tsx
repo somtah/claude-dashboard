@@ -1,4 +1,5 @@
 import { ModelUsage } from '@/lib/types'
+import { useLang } from '@/context/LangContext'
 
 interface Props {
   models?: ModelUsage[]
@@ -19,6 +20,7 @@ function formatTokens(n: number): string {
 }
 
 export default function ModelsSection({ models }: Props) {
+  const { tr } = useLang()
   return (
     <div style={{
       background: '#111111',
@@ -33,12 +35,12 @@ export default function ModelsSection({ models }: Props) {
         textTransform: 'uppercase',
         marginBottom: '1rem',
       }}>
-        Models (7d)
+        {tr.models}
       </div>
 
       {(!models || models.length === 0) ? (
         <div style={{ color: '#444444', fontSize: '0.875rem', textAlign: 'center', padding: '2rem 0' }}>
-          No model data available
+          {tr.noModelData}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

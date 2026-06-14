@@ -1,10 +1,12 @@
 import { AccountInfo } from '@/lib/types'
+import { useLang } from '@/context/LangContext'
 
 interface Props {
   account: AccountInfo | null
 }
 
 export default function AccountSection({ account }: Props) {
+  const { tr } = useLang()
   const email = account?.email
   const showEmail = email && email !== 'Unknown'
   const plan = account?.plan || 'Pro'
@@ -36,10 +38,10 @@ export default function AccountSection({ account }: Props) {
         }} />
         <div>
           <div style={{ color: '#555', fontSize: '0.65rem', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>
-            ACCOUNT
+            {tr.account}
           </div>
           <span style={{ fontSize: '0.875rem', color: '#cccccc' }}>
-            {showEmail ? email : 'Connected'} · <span style={{ color: '#f97316' }}>{plan}</span>
+            {showEmail ? email : tr.connected} · <span style={{ color: '#f97316' }}>{plan}</span>
           </span>
         </div>
       </div>
@@ -54,7 +56,7 @@ export default function AccountSection({ account }: Props) {
           minWidth: '200px',
         }}>
           <div style={{ color: '#555', fontSize: '0.65rem', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.375rem' }}>
-            EMAIL
+            {tr.email}
           </div>
           <span style={{ fontSize: '0.875rem', color: '#cccccc', wordBreak: 'break-all' }}>{email}</span>
         </div>

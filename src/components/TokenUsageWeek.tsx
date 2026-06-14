@@ -1,3 +1,5 @@
+import { useLang } from '@/context/LangContext'
+
 interface Props {
   data?: {
     tokens: number
@@ -17,6 +19,7 @@ function formatTokens(n: number): string {
 }
 
 export default function TokenUsageWeek({ data }: Props) {
+  const { tr, fmt } = useLang()
   const maxTokens = Math.max(...(data?.dailyBreakdown?.map(d => d.tokens) || [1]))
 
   return (
@@ -33,7 +36,7 @@ export default function TokenUsageWeek({ data }: Props) {
         textTransform: 'uppercase',
         marginBottom: '0.75rem',
       }}>
-        This Week
+        {tr.thisWeek}
       </div>
 
       <div style={{
@@ -46,14 +49,14 @@ export default function TokenUsageWeek({ data }: Props) {
         {formatTokens(data?.tokens || 0)}
       </div>
       <div style={{ color: '#555555', fontSize: '0.75rem', marginBottom: '0.75rem' }}>
-        ~${(data?.estimatedCost || 0).toFixed(2)} · <span style={{ color: '#22c55e' }}>~฿{Math.round((data?.estimatedCost || 0) * 33).toLocaleString()}</span> estimated
+        {fmt(data?.estimatedCost || 0)} {tr.estimated}
       </div>
 
       <div className="week-stats-grid">
-        <StatItem label="Sessions" value={(data?.sessions || 0).toString()} />
-        <StatItem label="Messages" value={formatTokens(data?.messages || 0)} />
-        <StatItem label="Streak" value={`${data?.streak || 0}d`} color="#f59e0b" />
-        <StatItem label="Days" value="7" />
+        <StatItem label={tr.sessions} value={(data?.sessions || 0).toString()} />
+        <StatItem label={tr.messages} value={formatTokens(data?.messages || 0)} />
+        <StatItem label={tr.streak} value={`${data?.streak || 0}d`} color="#f59e0b" />
+        <StatItem label={tr.days} value="7" />
       </div>
 
       {/* Mini bar chart */}

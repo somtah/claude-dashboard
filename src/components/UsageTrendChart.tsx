@@ -1,6 +1,7 @@
 'use client'
 
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { useLang } from '@/context/LangContext'
 
 interface DailyUsage {
   date: string
@@ -24,8 +25,9 @@ function formatTokens(n: number): string {
 }
 
 export default function UsageTrendChart({ data }: Props) {
+  const { tr, lang } = useLang()
   const chartData = (data || []).map(d => ({
-    date: formatDate(d.date),
+    date: new Date(d.date + 'T00:00:00').toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }),
     tokens: d.tokens,
   }))
 
@@ -48,9 +50,9 @@ export default function UsageTrendChart({ data }: Props) {
           letterSpacing: '0.1em',
           textTransform: 'uppercase',
         }}>
-          Usage Trend (7d)
+          {tr.usageTrend}
         </div>
-        <div style={{ color: '#f97316', fontSize: '0.65rem' }}>Tokens/Day</div>
+        <div style={{ color: '#f97316', fontSize: '0.65rem' }}>{tr.tokensPerDay}</div>
       </div>
 
       <div style={{ height: '160px' }}>
@@ -83,7 +85,7 @@ export default function UsageTrendChart({ data }: Props) {
                 color: 'white',
                 fontSize: '0.75rem',
               }}
-              formatter={(value: number) => [formatTokens(value), 'Tokens']}
+              formatter={(value: number) => [formatTokens(value), tr.tokens]}
               labelStyle={{ color: '#888888' }}
             />
             <Area

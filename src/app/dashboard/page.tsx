@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { UsageData, AccountInfo } from '@/lib/types'
 import { saveHandle, loadHandle, verifyPermission } from '@/lib/handle-store'
 import { getStoredORKey, fetchOpenRouterUsage } from '@/lib/openrouter'
+import { LangProvider, useLang } from '@/context/LangContext'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountSection from '@/components/AccountSection'
 import TokenUsageToday from '@/components/TokenUsageToday'
@@ -197,18 +198,60 @@ export default function DashboardPage() {
   if (!mounted) return <LoadingSkeleton />
 
   return (
+    <LangProvider>
+    <DashboardInner
+      provider={provider}
+      usageData={usageData}
+      accountInfo={accountInfo}
+      loading={loading}
+      lastUpdated={lastUpdated}
+      showClaudeModal={showClaudeModal}
+      showORModal={showORModal}
+      onRefresh={handleRefresh}
+      onProviderChange={handleProviderChange}
+      onClaudeDataLoaded={handleClaudeDataLoaded}
+      onORConnected={handleORConnected}
+      onDismissClaude={() => setShowClaudeModal(false)}
+      onDismissOR={() => setShowORModal(false)}
+    />
+    </LangProvider>
+  )
+}
+
+function DashboardInner({
+  provider, usageData, accountInfo, loading, lastUpdated,
+  showClaudeModal, showORModal,
+  onRefresh, onProviderChange, onClaudeDataLoaded, onORConnected,
+  onDismissClaude, onDismissOR,
+}: {
+  provider: Provider
+  usageData: UsageData | null
+  accountInfo: AccountInfo | null
+  loading: boolean
+  lastUpdated: Date
+  showClaudeModal: boolean
+  showORModal: boolean
+  onRefresh: () => void
+  onProviderChange: (p: Provider) => void
+  onClaudeDataLoaded: (data: UsageData, dirHandle: FileSystemDirectoryHandle) => void
+  onORConnected: () => void
+  onDismissClaude: () => void
+  onDismissOR: () => void
+}) {
+  const { tr } = useLang()
+  return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: 'white' }}>
       {showClaudeModal && (
-        <ConnectDataModal onDataLoaded={handleClaudeDataLoaded} onDismiss={() => setShowClaudeModal(false)} />
+        <ConnectDataModal onDataLoaded={onClaudeDataLoaded} onDismiss={onDismissClaude} />
       )}
       {showORModal && (
-        <ConnectOpenRouter onConnected={handleORConnected} onDismiss={() => setShowORModal(false)} />
+        <ConnectOpenRouter onConnected={onORConnected} onDismiss={onDismissOR} />
       )}
 
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem' }}>
         <DashboardHeader
-          lastUpdated={lastUpdated} onRefresh={handleRefresh} loading={loading}
-          provider={provider} onProviderChange={handleProviderChange}
+          lastUpdated={lastUpdated} onRefresh={onRefresh} loading={loading}
+          provider={provider} onProviderChange={onProviderChange}
         />
 
         {loading && !usageData ? <LoadingSkeleton /> : (
@@ -231,9 +274,7 @@ export default function DashboardPage() {
           textAlign: 'center', color: '#555555', fontSize: '0.75rem',
           marginTop: '2rem', paddingTop: '1rem', borderTop: '1px solid #222222',
         }}>
-          {provider === 'openrouter'
-            ? 'Usage data from OpenRouter API · costs are estimates'
-            : 'Token usage from your local Claude Code sessions · costs are estimates'}
+          {provider === 'openrouter' ? tr.footerOR : tr.footerClaude}
         </div>
       </div>
     </div>
