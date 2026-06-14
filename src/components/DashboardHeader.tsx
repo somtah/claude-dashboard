@@ -1,7 +1,6 @@
 'use client'
 
-import { RefreshCw, LogOut } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { RefreshCw } from 'lucide-react'
 
 interface Props {
   lastUpdated: Date
@@ -10,13 +9,6 @@ interface Props {
 }
 
 export default function DashboardHeader({ lastUpdated, onRefresh, loading }: Props) {
-  const router = useRouter()
-
-  async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' })
-    router.push('/login')
-  }
-
   const timeStr = lastUpdated.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
@@ -65,25 +57,6 @@ export default function DashboardHeader({ lastUpdated, onRefresh, loading }: Pro
           }} />
           Refresh
           <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
-        </button>
-        <button
-          onClick={handleLogout}
-          style={{
-            background: '#1a1a1a',
-            border: '1px solid #333333',
-            borderRadius: '8px',
-            padding: '0.5rem 0.75rem',
-            color: '#888888',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            fontSize: '0.75rem',
-            transition: 'all 0.2s',
-          }}
-        >
-          <LogOut size={14} />
-          Logout
         </button>
       </div>
     </div>
