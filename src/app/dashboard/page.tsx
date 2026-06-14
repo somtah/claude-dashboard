@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { UsageData, AccountInfo } from '@/lib/types'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountSection from '@/components/AccountSection'
@@ -47,6 +47,22 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
   const [showModal, setShowModal] = useState(false)
+  const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null)
+
+  const refreshFromHandle = useCallback(async (handle: FileSystemDirectoryHandle) => {
+    setLoading(true)
+    try {
+      const { loadDataFromDirectory } = await import('@/lib/client-parser')
+      const data = await loadDataFromDirectory(handle)
+      setUsageData(data)
+      setLastUpdated(new Date())
+      setCachedData(data)
+    } catch (err) {
+      console.error('Auto-refresh failed:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -87,7 +103,18 @@ export default function DashboardPage() {
     fetchData()
   }, [fetchData])
 
-  function handleDataLoaded(data: UsageData) {
+  // Auto-refresh every 5 minutes if we have a dirHandle in memory
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (dirHandleRef.current) {
+        refreshFromHandle(dirHandleRef.current)
+      }
+    }, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [refreshFromHandle])
+
+  function handleDataLoaded(data: UsageData, dirHandle: FileSystemDirectoryHandle) {
+    dirHandleRef.current = dirHandle
     setUsageData(data)
     setLastUpdated(new Date())
     setCachedData(data)
@@ -95,9 +122,14 @@ export default function DashboardPage() {
   }
 
   async function handleRefresh() {
-    localStorage.removeItem(CACHE_KEY)
-    setShowModal(false)
-    await fetchData()
+    if (dirHandleRef.current) {
+      // Re-read from the same folder — no modal needed
+      await refreshFromHandle(dirHandleRef.current)
+    } else {
+      localStorage.removeItem(CACHE_KEY)
+      setShowModal(false)
+      await fetchData()
+    }
   }
 
   return (

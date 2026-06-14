@@ -5,7 +5,7 @@ import { isFileSystemAccessSupported, pickClaudeDirectory, loadDataFromDirectory
 import type { UsageData } from '@/lib/types'
 
 interface Props {
-  onDataLoaded: (data: UsageData) => void
+  onDataLoaded: (data: UsageData, dirHandle: FileSystemDirectoryHandle) => void
   onDismiss: () => void
 }
 
@@ -20,7 +20,7 @@ export default function ConnectDataModal({ onDataLoaded, onDismiss }: Props) {
     try {
       const dirHandle = await pickClaudeDirectory()
       const data = await loadDataFromDirectory(dirHandle)
-      onDataLoaded(data)
+      onDataLoaded(data, dirHandle)
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         setError('ไม่สามารถอ่านไฟล์ได้ ลองเลือก ~/.claude folder อีกครั้ง')
