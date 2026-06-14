@@ -238,27 +238,46 @@ export async function parseAccountFromDir(dirHandle: FileSystemDirectoryHandle):
   let organization = 'Unknown'
   let plan = 'Pro'
 
-  // Try multiple files that might contain account info
-  const filesToTry = ['config.json', 'settings.json', '.credentials.json', 'account.json']
+  const filesToTry = [
+    'config.json', 'settings.json', 'account.json', 'profile.json',
+    '.credentials.json', '.config.json', '.account.json',
+  ]
 
   for (const filename of filesToTry) {
     const data = await readJsonFile(dirHandle, filename)
     if (!data) continue
-    email = data.email || data.userEmail || data.user_email || data.primaryEmail || email
-    organization = data.organizationName || data.organization || data.org || data.orgName || organization
-    plan = data.planType || data.plan || data.subscriptionType || data.tier || plan
+
+    email = data.email || data.emailAddress || data.userEmail || data.user_email
+      || data.primaryEmail || data.primary_email || email
+
+    organization = data.organizationName || data.organization || data.org
+      || data.orgName || data.org_name || data.company || organization
+
+    plan = data.planType || data.plan || data.subscriptionType
+      || data.subscription || data.tier || plan
+
+    // Try nested objects: { claudeAiOauthAccount: { emailAddress: ... } }
+    const nested = data.claudeAiOauthAccount || data.account || data.user || data.profile
+    if (nested) {
+      email = nested.emailAddress || nested.email || nested.primaryEmail || email
+      organization = nested.organizationName || nested.organization || nested.org || organization
+      plan = nested.plan || nested.planType || plan
+    }
   }
 
-  // Try nested: ~/.claude/account/profile.json or similar
-  try {
-    const accountDir = await (dirHandle as any).getDirectoryHandle('account')
-    const profileData = await readJsonFile(accountDir, 'profile.json')
-    if (profileData) {
-      email = profileData.email || profileData.primaryEmail || email
-      organization = profileData.organizationName || profileData.organization || organization
-      plan = profileData.plan || profileData.planType || plan
-    }
-  } catch { /* no account dir */ }
+  // Try subdirectories: ~/.claude/account/, ~/.claude/user/
+  for (const subdir of ['account', 'user', 'profile']) {
+    try {
+      const sub = await (dirHandle as any).getDirectoryHandle(subdir)
+      for (const f of ['profile.json', 'info.json', 'data.json']) {
+        const data = await readJsonFile(sub, f)
+        if (!data) continue
+        email = data.email || data.emailAddress || data.primaryEmail || email
+        organization = data.organizationName || data.organization || organization
+        plan = data.plan || data.planType || plan
+      }
+    } catch { /* no such dir */ }
+  }
 
   return { email, organization, plan }
 }
