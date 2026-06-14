@@ -89,10 +89,16 @@ function processEntries(allEntries: RawEntry[]): UsageData {
   const activeDays = new Set<string>()
 
   for (const { line, mtime, filePath } of allEntries) {
-    if (line.type !== 'say') continue
+    // Claude Code uses 'assistant' in newer versions, 'say' with role='assistant' in older
+    const isAssistant =
+      line.type === 'assistant' ||
+      (line.type === 'say' && line.message?.role === 'assistant')
+    if (!isAssistant) continue
     if (!line.message) continue
-    if (line.message.role !== 'assistant') continue
     if (!line.message.usage) continue
+
+    // Use line timestamp if available, else fall back to file mtime
+    const entryTime = (line as any).timestamp ? new Date((line as any).timestamp).getTime() : mtime
 
     const u = line.message.usage
     const input = u.input_tokens || 0
@@ -101,21 +107,21 @@ function processEntries(allEntries: RawEntry[]): UsageData {
     const cacheWrite = u.cache_creation_input_tokens || 0
     const total = input + output + cacheRead + cacheWrite
     const model = line.message.model || 'unknown'
-    const dateStr = formatDate(mtime)
+    const dateStr = formatDate(entryTime)
 
     totalUsage.tokens += total
     totalUsage.messages++
     totalSessionFiles.add(filePath)
     modelMap.set(model, (modelMap.get(model) || 0) + total)
 
-    if (mtime >= todayStart) {
+    if (entryTime >= todayStart) {
       todayUsage.input += input
       todayUsage.output += output
       todayUsage.cacheRead += cacheRead
       todayUsage.cacheWrite += cacheWrite
     }
 
-    if (mtime >= weekStart) {
+    if (entryTime >= weekStart) {
       weekUsage.tokens += total
       weekUsage.messages++
       weekSessionFiles.add(filePath)

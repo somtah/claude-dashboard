@@ -132,9 +132,11 @@ export function parseUsageData(): UsageData {
     let fileHasMessages = false
 
     for (const line of lines) {
-      if (line.type !== 'say') continue
+      const isAssistant =
+        line.type === 'assistant' ||
+        (line.type === 'say' && line.message?.role === 'assistant')
+      if (!isAssistant) continue
       if (!line.message) continue
-      if (line.message.role !== 'assistant') continue
       if (!line.message.usage) continue
 
       const usage = line.message.usage
