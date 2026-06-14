@@ -10,7 +10,7 @@ import TokenUsageWeek from '@/components/TokenUsageWeek'
 import UsageTrendChart from '@/components/UsageTrendChart'
 import ModelsSection from '@/components/ModelsSection'
 import SubscriptionSection from '@/components/SubscriptionSection'
-import ConnectLocalData from '@/components/ConnectLocalData'
+import ConnectDataModal from '@/components/ConnectDataModal'
 
 const CACHE_KEY = 'claude_usage_cache'
 const CACHE_TTL = 5 * 60 * 1000
@@ -46,6 +46,7 @@ export default function DashboardPage() {
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [showModal, setShowModal] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -57,12 +58,18 @@ export default function DashboardPage() {
       if (usageRes.ok) {
         const data: UsageData = await usageRes.json()
         setUsageData(data)
-        if (!isEmptyUsage(data)) setCachedData(data)
+        if (!isEmptyUsage(data)) {
+          setCachedData(data)
+        } else {
+          // No server data → show modal automatically
+          setShowModal(true)
+        }
       }
       if (accountRes.ok) setAccountInfo(await accountRes.json())
       setLastUpdated(new Date())
     } catch (err) {
       console.error('Failed to fetch data:', err)
+      setShowModal(true)
     } finally {
       setLoading(false)
     }
@@ -80,21 +87,29 @@ export default function DashboardPage() {
     fetchData()
   }, [fetchData])
 
-  function handleClientDataLoaded(data: UsageData) {
+  function handleDataLoaded(data: UsageData) {
     setUsageData(data)
     setLastUpdated(new Date())
     setCachedData(data)
+    setShowModal(false)
   }
 
   async function handleRefresh() {
     sessionStorage.removeItem(CACHE_KEY)
+    setShowModal(false)
     await fetchData()
   }
 
-  const showConnectPrompt = !loading && isEmptyUsage(usageData)
-
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: 'white' }}>
+      {/* Modal pops up automatically when no data */}
+      {showModal && (
+        <ConnectDataModal
+          onDataLoaded={handleDataLoaded}
+          onDismiss={() => setShowModal(false)}
+        />
+      )}
+
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem' }}>
         <DashboardHeader lastUpdated={lastUpdated} onRefresh={handleRefresh} loading={loading} />
 
@@ -104,25 +119,17 @@ export default function DashboardPage() {
           <>
             <AccountSection account={accountInfo} />
 
-            {/* Connect prompt when no local data found (cloud deployment) */}
-            {showConnectPrompt && (
-              <ConnectLocalData onDataLoaded={handleClientDataLoaded} />
-            )}
-
-            {/* Token Usage Row */}
             <div className="grid-3">
               <TokenUsageToday data={usageData?.today} />
               <TokenUsageTotal data={usageData?.total} />
               <TokenUsageWeek data={usageData?.thisWeek} />
             </div>
 
-            {/* Charts Row */}
             <div className="grid-2">
               <UsageTrendChart data={usageData?.thisWeek?.dailyBreakdown} />
               <ModelsSection models={usageData?.models} />
             </div>
 
-            {/* Subscription Row */}
             <SubscriptionSection data={usageData?.subscription} />
           </>
         )}
