@@ -201,16 +201,39 @@ function processEntries(allEntries: RawEntry[]): UsageData {
 }
 
 export async function loadDataFromDirectory(dirHandle: FileSystemDirectoryHandle): Promise<UsageData> {
-  // Try to descend into 'projects' subdirectory if given ~/.claude/
-  let projectsHandle: FileSystemDirectoryHandle = dirHandle
-  try {
-    projectsHandle = await (dirHandle as any).getDirectoryHandle('projects')
-  } catch {
-    // dirHandle might already be the projects dir
+  const entries: RawEntry[] = []
+
+  // Check if this looks like ~/.claude/ (has projects/ or sessions/ subdirs)
+  // or if it's already a sessions/projects dir
+  const subdirNames = ['projects', 'sessions']
+  let foundSubdir = false
+
+  for (const name of subdirNames) {
+    try {
+      const sub = await (dirHandle as any).getDirectoryHandle(name)
+      await collectJsonlEntries(sub, entries)
+      foundSubdir = true
+    } catch { /* not found */ }
   }
 
-  const entries: RawEntry[] = []
-  await collectJsonlEntries(projectsHandle, entries)
+  // Also read history.jsonl at root (Claude Code writes per-session summaries here)
+  try {
+    const histFile = await (dirHandle as any).getFileHandle('history.jsonl')
+    const file = await histFile.getFile()
+    const mtime = file.lastModified
+    const text = await file.text()
+    for (const raw of text.split('\n')) {
+      const trimmed = raw.trim()
+      if (!trimmed) continue
+      try { entries.push({ line: JSON.parse(trimmed), mtime, filePath: 'history.jsonl' }) } catch { /* skip */ }
+    }
+  } catch { /* no history.jsonl */ }
+
+  // Fallback: treat dirHandle itself as the data directory
+  if (!foundSubdir) {
+    await collectJsonlEntries(dirHandle, entries)
+  }
+
   return processEntries(entries)
 }
 
