@@ -1,21 +1,18 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json()
-    const { apiKey } = body
+    const { apiKey } = await req.json()
 
-    if (!apiKey || typeof apiKey !== 'string') {
+    if (!apiKey || !apiKey.startsWith('sk-ant-')) {
       return NextResponse.json(
-        { success: false, error: 'API key is required.' },
+        { error: 'Invalid API key format. Key must start with sk-ant-' },
         { status: 400 }
       )
     }
 
-    // Verify the API key against Anthropic
+    // Verify the API key
     const verifyRes = await fetch('https://api.anthropic.com/v1/models', {
-      method: 'GET',
       headers: {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
@@ -23,19 +20,12 @@ export async function POST(request: NextRequest) {
     })
 
     if (!verifyRes.ok) {
-      if (verifyRes.status === 401) {
-        return NextResponse.json(
-          { success: false, error: 'Invalid API key. Please check and try again.' },
-          { status: 401 }
-        )
-      }
       return NextResponse.json(
-        { success: false, error: `API verification failed (status ${verifyRes.status}).` },
-        { status: 400 }
+        { error: 'Invalid API key. Please check and try again.' },
+        { status: 401 }
       )
     }
 
-    // Store the API key in an httpOnly cookie
     const response = NextResponse.json({ success: true })
     response.cookies.set('claude_session', apiKey, {
       httpOnly: true,
@@ -46,10 +36,9 @@ export async function POST(request: NextRequest) {
     })
 
     return response
-  } catch (err) {
-    console.error('Login error:', err)
+  } catch {
     return NextResponse.json(
-      { success: false, error: 'Internal server error.' },
+      { error: 'Server error. Please try again.' },
       { status: 500 }
     )
   }

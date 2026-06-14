@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { readAccountData } from '@/lib/session-parser'
+import { parseAccountInfo } from '@/lib/session-parser'
 
 export async function GET(request: NextRequest) {
   const session = request.cookies.get('claude_session')
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = readAccountData()
+    const data = parseAccountInfo()
 
     // Build a preview of the API key (show first 10 + last 4 chars)
     const key = session.value

@@ -1,413 +1,319 @@
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import type {
-  JsonlMessage,
-  ClaudeConfig,
-  AccountData,
-  UsageData,
-  TodayStats,
-  TotalStats,
-  WeeklyStats,
-  DailyUsage,
-  ModelUsage,
-} from './types'
+import { UsageData, TokenUsage, DailyUsage, ModelUsage } from './types'
 
-const CLAUDE_DIR = path.join(os.homedir(), '.claude')
-const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects')
-const CONFIG_FILE = path.join(CLAUDE_DIR, 'config.json')
-
-// Cost per million tokens (approximate)
-const COST_PER_M_INPUT = 3.0
-const COST_PER_M_OUTPUT = 15.0
-const COST_PER_M_CACHE_READ = 0.3
-const COST_PER_M_CACHE_WRITE = 3.75
-
-function computeCost(
-  input: number,
-  output: number,
-  cacheRead: number,
-  cacheWrite: number
-): number {
-  return (
-    (input / 1_000_000) * COST_PER_M_INPUT +
-    (output / 1_000_000) * COST_PER_M_OUTPUT +
-    (cacheRead / 1_000_000) * COST_PER_M_CACHE_READ +
-    (cacheWrite / 1_000_000) * COST_PER_M_CACHE_WRITE
-  )
+interface SessionLine {
+  type: string
+  message?: {
+    role: string
+    model?: string
+    usage?: {
+      input_tokens: number
+      output_tokens: number
+      cache_creation_input_tokens?: number
+      cache_read_input_tokens?: number
+    }
+  }
+  timestamp?: string
+  uuid?: string
+  sessionId?: string
 }
 
-// Recursively find all .jsonl files under a directory
+function getClaudeDir(): string {
+  return path.join(os.homedir(), '.claude')
+}
+
 function findJsonlFiles(dir: string): string[] {
-  const results: string[] = []
-  if (!fs.existsSync(dir)) return results
+  const files: string[] = []
 
-  let entries: fs.Dirent[]
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
+    if (!fs.existsSync(dir)) return files
+
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        files.push(...findJsonlFiles(fullPath))
+      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        files.push(fullPath)
+      }
+    }
   } catch {
-    return results
+    // ignore permission errors
   }
 
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      results.push(...findJsonlFiles(fullPath))
-    } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-      results.push(fullPath)
-    }
-  }
-  return results
+  return files
 }
 
-interface ParsedEntry {
-  date: string // YYYY-MM-DD
-  model: string
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-  isUserMessage: boolean
-}
+function parseJsonlFile(filePath: string): { lines: SessionLine[], mtime: Date } {
+  const lines: SessionLine[] = []
+  let mtime = new Date()
 
-// Parse all JSONL files and return structured entries
-function parseAllEntries(): ParsedEntry[] {
-  const files = findJsonlFiles(PROJECTS_DIR)
-  const entries: ParsedEntry[] = []
+  try {
+    const stat = fs.statSync(filePath)
+    mtime = stat.mtime
 
-  for (const file of files) {
-    let content: string
-    try {
-      content = fs.readFileSync(file, 'utf-8')
-    } catch {
-      continue
-    }
-
-    const lines = content.split('\n')
-    // Use file modification time as a fallback date source
-    let fileMtime: Date
-    try {
-      fileMtime = fs.statSync(file).mtime
-    } catch {
-      fileMtime = new Date()
-    }
-
-    for (const line of lines) {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    for (const line of content.split('\n')) {
       const trimmed = line.trim()
       if (!trimmed) continue
 
-      let parsed: JsonlMessage
       try {
-        parsed = JSON.parse(trimmed)
+        const parsed = JSON.parse(trimmed)
+        lines.push(parsed)
       } catch {
-        continue
+        // skip malformed lines
       }
-
-      // We're only interested in assistant messages with usage data
-      if (parsed.type !== 'say') continue
-      if (!parsed.message) continue
-
-      const msg = parsed.message
-      const role = msg.role
-
-      // Track user messages to count them
-      if (role === 'user') {
-        const dateStr = parsed.timestamp
-          ? new Date(parsed.timestamp).toISOString().split('T')[0]
-          : fileMtime.toISOString().split('T')[0]
-        entries.push({
-          date: dateStr,
-          model: '',
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          isUserMessage: true,
-        })
-        continue
-      }
-
-      if (role !== 'assistant') continue
-      if (!msg.usage) continue
-
-      const usage = msg.usage
-      const input = usage.input_tokens ?? 0
-      const output = usage.output_tokens ?? 0
-      const cacheRead = usage.cache_read_input_tokens ?? 0
-      const cacheWrite = usage.cache_creation_input_tokens ?? 0
-
-      // Determine date from timestamp in the record or from file mtime
-      const dateStr = parsed.timestamp
-        ? new Date(parsed.timestamp).toISOString().split('T')[0]
-        : fileMtime.toISOString().split('T')[0]
-
-      entries.push({
-        date: dateStr,
-        model: msg.model ?? 'unknown',
-        input,
-        output,
-        cacheRead,
-        cacheWrite,
-        isUserMessage: false,
-      })
     }
-  }
-
-  return entries
-}
-
-function getDateString(d: Date): string {
-  return d.toISOString().split('T')[0]
-}
-
-function getDayLabel(dateStr: string): string {
-  const d = new Date(dateStr + 'T12:00:00Z')
-  return d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
-}
-
-export function readAccountData(): AccountData {
-  let config: ClaudeConfig = {}
-  try {
-    const raw = fs.readFileSync(CONFIG_FILE, 'utf-8')
-    config = JSON.parse(raw)
   } catch {
-    // Config file not found or invalid — use defaults
+    // ignore file read errors
   }
 
-  const email =
-    config.oauthAccount?.emailAddress ??
-    config.userEmail ??
-    'Unknown'
-
-  const organization =
-    config.oauthAccount?.organizationName ??
-    config.organizationName ??
-    'Unknown'
-
-  const plan = config.planType ?? 'Pro'
-
-  return {
-    email,
-    organization,
-    plan,
-    apiKeyPreview: '',
-  }
+  return { lines, mtime }
 }
 
-export function readUsageData(): UsageData {
-  const entries = parseAllEntries()
+function formatDate(date: Date): string {
+  return date.toISOString().split('T')[0]
+}
 
-  const now = new Date()
-  const todayStr = getDateString(now)
+function getDateDaysAgo(days: number): Date {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
 
-  // Build last 7 days array
-  const last7Days: string[] = []
+export function parseUsageData(): UsageData {
+  const claudeDir = getClaudeDir()
+  const projectsDir = path.join(claudeDir, 'projects')
+  const jsonlFiles = findJsonlFiles(projectsDir)
+
+  const today = formatDate(new Date())
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const weekStart = getDateDaysAgo(6)
+
+  const todayUsage: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  const totalUsage = { tokens: 0, sessions: 0, messages: 0, estimatedCost: 0 }
+  const weekUsage = { tokens: 0, estimatedCost: 0, sessions: 0, messages: 0, streak: 0 }
+
+  // daily breakdown for the last 7 days
+  const dailyMap = new Map<string, DailyUsage>()
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(now)
-    d.setDate(d.getDate() - i)
-    last7Days.push(getDateString(d))
-  }
-
-  const weekStart = last7Days[0]
-
-  // Aggregate by date
-  interface DateAgg {
-    input: number
-    output: number
-    cacheRead: number
-    cacheWrite: number
-    messages: number
-    userMessages: number
-  }
-  const byDate = new Map<string, DateAgg>()
-  // Track sessions per date by counting distinct file-timestamps (approximate: count as a session per unique project file per date)
-  // Simple approach: count distinct "conversation resets" — we'll just track message count as a proxy
-  // and use a heuristic for sessions
-
-  for (const entry of entries) {
-    if (!byDate.has(entry.date)) {
-      byDate.set(entry.date, {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        messages: 0,
-        userMessages: 0,
-      })
-    }
-    const agg = byDate.get(entry.date)!
-    if (entry.isUserMessage) {
-      agg.userMessages++
-    } else {
-      agg.input += entry.input
-      agg.output += entry.output
-      agg.cacheRead += entry.cacheRead
-      agg.cacheWrite += entry.cacheWrite
-      agg.messages++
-    }
-  }
-
-  // TODAY stats
-  const todayAgg = byDate.get(todayStr) ?? {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    messages: 0,
-    userMessages: 0,
-  }
-
-  const today: TodayStats = {
-    input: todayAgg.input,
-    output: todayAgg.output,
-    cacheRead: todayAgg.cacheRead,
-    cacheWrite: todayAgg.cacheWrite,
-    total: todayAgg.input + todayAgg.output + todayAgg.cacheRead + todayAgg.cacheWrite,
-  }
-
-  // TOTAL stats (all time)
-  let totalInput = 0
-  let totalOutput = 0
-  let totalCacheRead = 0
-  let totalCacheWrite = 0
-  let totalMessages = 0
-  let totalSessions = 0
-
-  for (const [, agg] of byDate) {
-    totalInput += agg.input
-    totalOutput += agg.output
-    totalCacheRead += agg.cacheRead
-    totalCacheWrite += agg.cacheWrite
-    totalMessages += agg.messages
-    // Rough session heuristic: 1 session per 30 messages
-    if (agg.messages > 0) totalSessions++
-  }
-
-  const totalTokens = totalInput + totalOutput + totalCacheRead + totalCacheWrite
-  const totalCost = computeCost(totalInput, totalOutput, totalCacheRead, totalCacheWrite)
-
-  const total: TotalStats = {
-    totalTokens,
-    estimatedCost: totalCost,
-    sessions: Math.max(1, totalSessions),
-    messages: totalMessages,
-  }
-
-  // WEEKLY stats
-  const dailyBreakdown: DailyUsage[] = last7Days.map((dateStr) => {
-    const agg = byDate.get(dateStr) ?? {
+    const d = getDateDaysAgo(i)
+    const key = formatDate(d)
+    dailyMap.set(key, {
+      date: key,
+      tokens: 0,
+      sessions: 0,
+      messages: 0,
       input: 0,
       output: 0,
       cacheRead: 0,
       cacheWrite: 0,
-      messages: 0,
-      userMessages: 0,
+    })
+  }
+
+  const modelMap = new Map<string, number>()
+  const sessionDates = new Set<string>()
+  const weekSessionDates = new Set<string>()
+  const activeDays = new Set<string>()
+
+  for (const filePath of jsonlFiles) {
+    const { lines, mtime } = parseJsonlFile(filePath)
+    if (lines.length === 0) continue
+
+    // Use file modification time as session date proxy
+    const fileDate = formatDate(mtime)
+    const isToday = mtime >= todayStart
+    const isThisWeek = mtime >= weekStart
+
+    let fileHasMessages = false
+
+    for (const line of lines) {
+      if (line.type !== 'say') continue
+      if (!line.message) continue
+      if (line.message.role !== 'assistant') continue
+      if (!line.message.usage) continue
+
+      const usage = line.message.usage
+      const input = usage.input_tokens || 0
+      const output = usage.output_tokens || 0
+      const cacheRead = usage.cache_read_input_tokens || 0
+      const cacheWrite = usage.cache_creation_input_tokens || 0
+      const total = input + output + cacheRead + cacheWrite
+
+      const model = line.message.model || 'unknown'
+
+      // Total
+      totalUsage.tokens += total
+      totalUsage.messages++
+      fileHasMessages = true
+
+      // Model tracking
+      modelMap.set(model, (modelMap.get(model) || 0) + total)
+
+      // Today
+      if (isToday) {
+        todayUsage.input += input
+        todayUsage.output += output
+        todayUsage.cacheRead += cacheRead
+        todayUsage.cacheWrite += cacheWrite
+      }
+
+      // This week
+      if (isThisWeek) {
+        weekUsage.tokens += total
+        weekUsage.messages++
+        weekSessionDates.add(filePath)
+        activeDays.add(fileDate)
+
+        if (dailyMap.has(fileDate)) {
+          const day = dailyMap.get(fileDate)!
+          day.tokens += total
+          day.messages++
+          day.input += input
+          day.output += output
+          day.cacheRead += cacheRead
+          day.cacheWrite += cacheWrite
+        }
+      }
     }
-    const dayTotal = agg.input + agg.output + agg.cacheRead + agg.cacheWrite
-    return {
-      date: dateStr,
-      label: getDayLabel(dateStr),
-      input: agg.input,
-      output: agg.output,
-      cacheRead: agg.cacheRead,
-      cacheWrite: agg.cacheWrite,
-      total: dayTotal,
-      sessions: agg.messages > 0 ? 1 : 0,
-      messages: agg.messages,
-    }
-  })
 
-  let weekInput = 0
-  let weekOutput = 0
-  let weekCacheRead = 0
-  let weekCacheWrite = 0
-  let weekMessages = 0
-  let weekSessions = 0
-  let streakDays = 0
-
-  for (const day of dailyBreakdown) {
-    weekInput += day.input
-    weekOutput += day.output
-    weekCacheRead += day.cacheRead
-    weekCacheWrite += day.cacheWrite
-    weekMessages += day.messages
-    weekSessions += day.sessions
-  }
-
-  // Calculate streak (consecutive days with usage ending today)
-  for (let i = dailyBreakdown.length - 1; i >= 0; i--) {
-    if (dailyBreakdown[i].messages > 0) {
-      streakDays++
-    } else {
-      break
+    if (fileHasMessages) {
+      sessionDates.add(filePath)
+      if (isThisWeek && dailyMap.has(fileDate)) {
+        const day = dailyMap.get(fileDate)!
+        day.sessions++
+      }
     }
   }
 
-  const weekTokens = weekInput + weekOutput + weekCacheRead + weekCacheWrite
-  const weekCost = computeCost(weekInput, weekOutput, weekCacheRead, weekCacheWrite)
+  totalUsage.sessions = sessionDates.size
+  weekUsage.sessions = weekSessionDates.size
 
-  const week: WeeklyStats = {
-    totalTokens: weekTokens,
-    estimatedCost: weekCost,
-    sessions: Math.max(weekSessions, 1),
-    messages: weekMessages,
-    streakDays,
-    dailyBreakdown,
+  // Calculate streak: consecutive days with activity ending today or yesterday
+  const sortedActiveDays = Array.from(activeDays).sort().reverse()
+  let streak = 0
+  if (sortedActiveDays.length > 0) {
+    const todayStr = formatDate(new Date())
+    const yesterdayStr = formatDate(getDateDaysAgo(1))
+
+    // Start streak from today or yesterday
+    let checkDate = sortedActiveDays[0] === todayStr || sortedActiveDays[0] === yesterdayStr
+      ? sortedActiveDays[0]
+      : null
+
+    if (checkDate) {
+      streak = 1
+      let prevDate = new Date(checkDate)
+      for (let i = 1; i < sortedActiveDays.length; i++) {
+        prevDate.setDate(prevDate.getDate() - 1)
+        if (formatDate(prevDate) === sortedActiveDays[i]) {
+          streak++
+        } else {
+          break
+        }
+      }
+    }
   }
+  weekUsage.streak = streak
 
-  // MODEL breakdown (last 7 days)
-  const modelTotals = new Map<string, number>()
-  for (const entry of entries) {
-    if (entry.isUserMessage) continue
-    if (entry.date < weekStart) continue
-    const tokens = entry.input + entry.output + entry.cacheRead + entry.cacheWrite
-    modelTotals.set(entry.model, (modelTotals.get(entry.model) ?? 0) + tokens)
-  }
+  // Cost estimates (rough approximation)
+  // claude-opus-4: $15/$75 per 1M tokens input/output
+  // claude-sonnet: $3/$15 per 1M tokens
+  // Using blended estimate of ~$3 per 1M tokens
+  totalUsage.estimatedCost = (totalUsage.tokens / 1_000_000) * 3
+  weekUsage.estimatedCost = (weekUsage.tokens / 1_000_000) * 3
 
-  const MODEL_COLORS: Record<string, string> = {
-    'claude-opus-4-5': '#a855f7',
-    'claude-opus-4': '#a855f7',
-    'claude-opus-3-5': '#a855f7',
-    'claude-opus-3': '#a855f7',
-    'claude-fable': '#ec4899',
-    'claude-sonnet-4-5': '#f97316',
-    'claude-sonnet-4': '#f97316',
-    'claude-sonnet-3-5': '#f97316',
-    'claude-sonnet-3': '#f97316',
-    'claude-haiku-3-5': '#06b6d4',
-    'claude-haiku-3': '#06b6d4',
-  }
-
-  const MODEL_DISPLAY: Record<string, string> = {
-    'claude-opus-4-5': 'Opus',
-    'claude-opus-4': 'Opus',
-    'claude-opus-3-5': 'Opus',
-    'claude-opus-3': 'Opus',
-    'claude-fable': 'Fable',
-    'claude-sonnet-4-5': 'Sonnet',
-    'claude-sonnet-4': 'Sonnet',
-    'claude-sonnet-3-5': 'Sonnet',
-    'claude-sonnet-3': 'Sonnet',
-    'claude-haiku-3-5': 'Haiku',
-    'claude-haiku-3': 'Haiku',
-  }
-
-  const weekTotalTokens = weekTokens || 1
-  const models: ModelUsage[] = Array.from(modelTotals.entries())
-    .sort((a, b) => b[1] - a[1])
+  // Models
+  const totalModelTokens = Array.from(modelMap.values()).reduce((a, b) => a + b, 0)
+  const models: ModelUsage[] = Array.from(modelMap.entries())
     .map(([model, tokens]) => ({
-      model,
-      displayName: MODEL_DISPLAY[model] ?? model,
+      model: formatModelName(model),
       tokens,
-      percentage: Math.round((tokens / weekTotalTokens) * 100),
-      color: MODEL_COLORS[model] ?? '#888888',
+      percentage: totalModelTokens > 0 ? Math.round((tokens / totalModelTokens) * 100) : 0,
     }))
+    .sort((a, b) => b.tokens - a.tokens)
+    .slice(0, 5)
+
+  // Subscription mock data (can't easily get real values from local files)
+  const subscription = {
+    sessionUsage: Math.min(Math.round((totalUsage.sessions / 100) * 100), 99),
+    weeklyUsage: Math.min(Math.round((weekUsage.tokens / 1_000_000_000) * 100 * 3), 99),
+    weeklySonnet: 0,
+  }
 
   return {
-    today,
-    total,
-    week,
+    today: todayUsage,
+    total: totalUsage,
+    thisWeek: {
+      ...weekUsage,
+      dailyBreakdown: Array.from(dailyMap.values()),
+    },
     models,
-    lastUpdated: new Date().toISOString(),
+    subscription,
   }
+}
+
+function formatModelName(model: string): string {
+  if (model.includes('opus')) return 'Opus'
+  if (model.includes('fable')) return 'Fable'
+  if (model.includes('sonnet')) return 'Sonnet'
+  if (model.includes('haiku')) return 'Haiku'
+  return model.split('-').slice(0, 2).join('-')
+}
+
+export function parseAccountInfo() {
+  const claudeDir = getClaudeDir()
+
+  let email = 'Unknown'
+  let organization = 'Unknown'
+  let plan = 'Pro'
+
+  // Try config.json
+  const configPath = path.join(claudeDir, 'config.json')
+  try {
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+      email = config.email || config.userEmail || email
+      organization = config.organizationName || config.organization || organization
+      plan = config.planType || config.plan || plan
+    }
+  } catch { /* ignore */ }
+
+  // Try credentials file
+  const credPath = path.join(claudeDir, 'credentials')
+  try {
+    if (fs.existsSync(credPath)) {
+      const creds = fs.readFileSync(credPath, 'utf-8')
+      const emailMatch = creds.match(/email["\s:=]+([^\s"',\n]+)/i)
+      if (emailMatch) email = emailMatch[1]
+    }
+  } catch { /* ignore */ }
+
+  // Try .credentials.json
+  const credJsonPath = path.join(claudeDir, '.credentials.json')
+  try {
+    if (fs.existsSync(credJsonPath)) {
+      const creds = JSON.parse(fs.readFileSync(credJsonPath, 'utf-8'))
+      email = creds.email || creds.user_email || email
+      organization = creds.organization || creds.org || organization
+      plan = creds.plan || creds.subscription || plan
+    }
+  } catch { /* ignore */ }
+
+  // Try settings.json
+  const settingsPath = path.join(claudeDir, 'settings.json')
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+      email = settings.email || settings.userEmail || email
+      organization = settings.organizationName || settings.organization || organization
+      plan = settings.planType || settings.plan || plan
+    }
+  } catch { /* ignore */ }
+
+  return { email, organization, plan }
 }

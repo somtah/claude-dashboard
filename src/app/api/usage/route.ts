@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { readUsageData } from '@/lib/session-parser'
+import { parseUsageData } from '@/lib/session-parser'
 
 export async function GET(request: NextRequest) {
   const session = request.cookies.get('claude_session')
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = readUsageData()
+    const data = parseUsageData()
     return NextResponse.json(data)
   } catch (err) {
     console.error('Usage data error:', err)
