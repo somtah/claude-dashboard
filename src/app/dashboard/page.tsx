@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { UsageData, AccountInfo } from '@/lib/types'
+import { saveHandle, loadHandle, verifyPermission } from '@/lib/handle-store'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountSection from '@/components/AccountSection'
 import TokenUsageToday from '@/components/TokenUsageToday'
@@ -92,16 +93,38 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    const cached = getCachedData()
-    if (cached) {
-      setUsageData(cached.data)
-      setLastUpdated(new Date(cached.ts))
-      setLoading(false)
-      fetch('/api/account').then(r => r.ok ? r.json() : null).then(d => d && setAccountInfo(d))
-      return
+    async function init() {
+      // 1. Try localStorage cache first (instant)
+      const cached = getCachedData()
+      if (cached) {
+        setUsageData(cached.data)
+        setLastUpdated(new Date(cached.ts))
+        setLoading(false)
+        fetch('/api/account').then(r => r.ok ? r.json() : null).then(d => d && setAccountInfo(d))
+      }
+
+      // 2. Try stored handle from IndexedDB
+      const savedHandle = await loadHandle()
+      if (savedHandle) {
+        const permitted = await verifyPermission(savedHandle)
+        if (permitted) {
+          dirHandleRef.current = savedHandle
+          // Only re-read if no fresh cache
+          if (!cached) {
+            await refreshFromHandle(savedHandle)
+            fetch('/api/account').then(r => r.ok ? r.json() : null).then(d => d && setAccountInfo(d))
+          }
+          return
+        }
+      }
+
+      // 3. No handle → try server API (works on local, returns empty on Vercel)
+      if (!cached) {
+        await fetchData()
+      }
     }
-    fetchData()
-  }, [fetchData])
+    init()
+  }, [fetchData, refreshFromHandle])
 
   // Auto-refresh every 5 minutes if we have a dirHandle in memory
   useEffect(() => {
@@ -115,6 +138,7 @@ export default function DashboardPage() {
 
   function handleDataLoaded(data: UsageData, dirHandle: FileSystemDirectoryHandle) {
     dirHandleRef.current = dirHandle
+    saveHandle(dirHandle).catch(() => {}) // persist across reloads
     setUsageData(data)
     setLastUpdated(new Date())
     setCachedData(data)
