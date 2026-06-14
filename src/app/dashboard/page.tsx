@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { UsageData, AccountInfo } from '@/lib/types'
 import { saveHandle, loadHandle, verifyPermission } from '@/lib/handle-store'
+import { getStoredORKey, fetchOpenRouterUsage } from '@/lib/openrouter'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountSection from '@/components/AccountSection'
 import TokenUsageToday from '@/components/TokenUsageToday'
@@ -12,42 +13,41 @@ import UsageTrendChart from '@/components/UsageTrendChart'
 import ModelsSection from '@/components/ModelsSection'
 import SubscriptionSection from '@/components/SubscriptionSection'
 import ConnectDataModal from '@/components/ConnectDataModal'
+import ConnectOpenRouter from '@/components/ConnectOpenRouter'
+
+type Provider = 'claude' | 'openrouter'
 
 const CACHE_KEY = 'claude_usage_cache'
-const CACHE_TTL = 60 * 60 * 1000 // 1 hour
+const OR_CACHE_KEY = 'or_usage_cache'
+const CACHE_TTL = 60 * 60 * 1000
 
 function isEmptyUsage(data: UsageData | null): boolean {
   if (!data) return true
   return data.total.tokens === 0 && data.total.sessions === 0
 }
 
-function getCachedData(): { data: UsageData; ts: number } | null {
+function getCachedData(key = CACHE_KEY): { data: UsageData; ts: number } | null {
   try {
-    const raw = localStorage.getItem(CACHE_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (Date.now() - parsed.ts > CACHE_TTL) {
-      localStorage.removeItem(CACHE_KEY)
-      return null
-    }
+    if (Date.now() - parsed.ts > CACHE_TTL) { localStorage.removeItem(key); return null }
     return parsed
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
-function setCachedData(data: UsageData) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }))
-  } catch { /* ignore */ }
+function setCachedData(data: UsageData, key = CACHE_KEY) {
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })) } catch { /* ignore */ }
 }
 
 export default function DashboardPage() {
+  const [provider, setProvider] = useState<Provider>('claude')
   const [usageData, setUsageData] = useState<UsageData | null>(null)
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
-  const [showModal, setShowModal] = useState(false)
+  const [showClaudeModal, setShowClaudeModal] = useState(false)
+  const [showORModal, setShowORModal] = useState(false)
   const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null)
 
   const refreshFromHandle = useCallback(async (handle: FileSystemDirectoryHandle) => {
@@ -63,34 +63,51 @@ export default function DashboardPage() {
       setLastUpdated(new Date())
       setCachedData(data)
     } catch (err) {
-      console.error('Auto-refresh failed:', err)
+      console.error('Claude refresh failed:', err)
     } finally {
       setLoading(false)
     }
   }, [])
 
-  const fetchData = useCallback(async () => {
+  const fetchServerData = useCallback(async () => {
     setLoading(true)
     try {
-      const [usageRes, accountRes] = await Promise.all([
-        fetch('/api/usage'),
-        fetch('/api/account'),
-      ])
+      const [usageRes, accountRes] = await Promise.all([fetch('/api/usage'), fetch('/api/account')])
       if (usageRes.ok) {
         const data: UsageData = await usageRes.json()
         setUsageData(data)
-        if (!isEmptyUsage(data)) {
-          setCachedData(data)
-        } else {
-          // No server data → show modal automatically
-          setShowModal(true)
-        }
+        if (!isEmptyUsage(data)) setCachedData(data)
+        else setShowClaudeModal(true)
       }
       if (accountRes.ok) setAccountInfo(await accountRes.json())
       setLastUpdated(new Date())
-    } catch (err) {
-      console.error('Failed to fetch data:', err)
-      setShowModal(true)
+    } catch {
+      setShowClaudeModal(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const loadOpenRouterData = useCallback(async () => {
+    const key = getStoredORKey()
+    if (!key) { setShowORModal(true); setLoading(false); return }
+    const cached = getCachedData(OR_CACHE_KEY)
+    if (cached) {
+      setUsageData(cached.data)
+      setAccountInfo({ email: 'OpenRouter', organization: '', plan: 'API' })
+      setLastUpdated(new Date(cached.ts))
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    try {
+      const data = await fetchOpenRouterUsage(key)
+      setUsageData(data)
+      setAccountInfo({ email: 'OpenRouter', organization: '', plan: 'API' })
+      setCachedData(data, OR_CACHE_KEY)
+      setLastUpdated(new Date())
+    } catch {
+      setShowORModal(true)
     } finally {
       setLoading(false)
     }
@@ -98,7 +115,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function init() {
-      // 1. Try localStorage cache first (instant)
+      const orKey = getStoredORKey()
+      if (orKey) {
+        setProvider('openrouter')
+        await loadOpenRouterData()
+        return
+      }
       const cached = getCachedData()
       if (cached) {
         setUsageData(cached.data)
@@ -106,103 +128,106 @@ export default function DashboardPage() {
         setLoading(false)
         fetch('/api/account').then(r => r.ok ? r.json() : null).then(d => d && setAccountInfo(d))
       }
-
-      // 2. Try stored handle from IndexedDB
       const savedHandle = await loadHandle()
-      if (savedHandle) {
-        const permitted = await verifyPermission(savedHandle)
-        if (permitted) {
-          dirHandleRef.current = savedHandle
-          // Only re-read if no fresh cache
-          if (!cached) {
-            await refreshFromHandle(savedHandle)
-            fetch('/api/account').then(r => r.ok ? r.json() : null).then(d => d && setAccountInfo(d))
-          }
-          return
-        }
+      if (savedHandle && await verifyPermission(savedHandle)) {
+        dirHandleRef.current = savedHandle
+        if (!cached) await refreshFromHandle(savedHandle)
+        return
       }
-
-      // 3. No handle → try server API (works on local, returns empty on Vercel)
-      if (!cached) {
-        await fetchData()
-      }
+      if (!cached) await fetchServerData()
     }
     init()
-  }, [fetchData, refreshFromHandle])
+  }, [fetchServerData, refreshFromHandle, loadOpenRouterData])
 
-  // Auto-refresh every 5 minutes if we have a dirHandle in memory
   useEffect(() => {
     const interval = setInterval(() => {
-      if (dirHandleRef.current) {
+      if (provider === 'claude' && dirHandleRef.current) {
         refreshFromHandle(dirHandleRef.current)
+      } else if (provider === 'openrouter') {
+        const key = getStoredORKey()
+        if (key) fetchOpenRouterUsage(key).then(data => {
+          setUsageData(data); setCachedData(data, OR_CACHE_KEY); setLastUpdated(new Date())
+        }).catch(() => {})
       }
     }, 5 * 60 * 1000)
     return () => clearInterval(interval)
-  }, [refreshFromHandle])
+  }, [provider, refreshFromHandle])
 
-  function handleDataLoaded(data: UsageData, dirHandle: FileSystemDirectoryHandle) {
-    dirHandleRef.current = dirHandle
-    saveHandle(dirHandle).catch(() => {}) // persist across reloads
-    setUsageData(data)
-    setLastUpdated(new Date())
-    setCachedData(data)
-    setShowModal(false)
+  async function handleProviderChange(p: Provider) {
+    setProvider(p)
+    setUsageData(null)
+    setAccountInfo(null)
+    if (p === 'openrouter') {
+      await loadOpenRouterData()
+    } else {
+      const cached = getCachedData()
+      if (cached) { setUsageData(cached.data); setLastUpdated(new Date(cached.ts)); setLoading(false); return }
+      if (dirHandleRef.current) await refreshFromHandle(dirHandleRef.current)
+      else await fetchServerData()
+    }
   }
 
+  function handleClaudeDataLoaded(data: UsageData, dirHandle: FileSystemDirectoryHandle) {
+    dirHandleRef.current = dirHandle
+    saveHandle(dirHandle).catch(() => {})
+    setUsageData(data); setLastUpdated(new Date()); setCachedData(data); setShowClaudeModal(false)
+  }
+
+  function handleORConnected() { setShowORModal(false); loadOpenRouterData() }
+
   async function handleRefresh() {
-    if (dirHandleRef.current) {
-      // Re-read from the same folder — no modal needed
-      await refreshFromHandle(dirHandleRef.current)
+    if (provider === 'openrouter') {
+      const key = getStoredORKey()
+      if (!key) { setShowORModal(true); return }
+      setLoading(true)
+      try {
+        const data = await fetchOpenRouterUsage(key)
+        setUsageData(data); setCachedData(data, OR_CACHE_KEY); setLastUpdated(new Date())
+      } finally { setLoading(false) }
     } else {
-      localStorage.removeItem(CACHE_KEY)
-      setShowModal(false)
-      await fetchData()
+      if (dirHandleRef.current) await refreshFromHandle(dirHandleRef.current)
+      else { localStorage.removeItem(CACHE_KEY); await fetchServerData() }
     }
   }
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: 'white' }}>
-      {/* Modal pops up automatically when no data */}
-      {showModal && (
-        <ConnectDataModal
-          onDataLoaded={handleDataLoaded}
-          onDismiss={() => setShowModal(false)}
-        />
+      {showClaudeModal && (
+        <ConnectDataModal onDataLoaded={handleClaudeDataLoaded} onDismiss={() => setShowClaudeModal(false)} />
+      )}
+      {showORModal && (
+        <ConnectOpenRouter onConnected={handleORConnected} onDismiss={() => setShowORModal(false)} />
       )}
 
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem' }}>
-        <DashboardHeader lastUpdated={lastUpdated} onRefresh={handleRefresh} loading={loading} />
+        <DashboardHeader
+          lastUpdated={lastUpdated} onRefresh={handleRefresh} loading={loading}
+          provider={provider} onProviderChange={handleProviderChange}
+        />
 
-        {loading && !usageData ? (
-          <LoadingSkeleton />
-        ) : (
+        {loading && !usageData ? <LoadingSkeleton /> : (
           <>
             <AccountSection account={accountInfo} />
-
             <div className="grid-3">
               <TokenUsageToday data={usageData?.today} />
               <TokenUsageTotal data={usageData?.total} />
               <TokenUsageWeek data={usageData?.thisWeek} />
             </div>
-
             <div className="grid-2">
               <UsageTrendChart data={usageData?.thisWeek?.dailyBreakdown} />
               <ModelsSection models={usageData?.models} />
             </div>
-
-            <SubscriptionSection data={usageData?.subscription} />
+            {provider === 'claude' && <SubscriptionSection data={usageData?.subscription} />}
           </>
         )}
 
         <div style={{
-          textAlign: 'center',
-          color: '#555555',
-          fontSize: '0.75rem',
-          marginTop: '2rem',
-          paddingTop: '1rem',
-          borderTop: '1px solid #222222',
+          textAlign: 'center', color: '#555555', fontSize: '0.75rem',
+          marginTop: '2rem', paddingTop: '1rem', borderTop: '1px solid #222222',
         }}>
-          Token usage from your local Claude Code sessions · subscription quota from claude.ai · costs are estimates
+          {provider === 'openrouter'
+            ? 'Usage data from OpenRouter API · costs are estimates'
+            : 'Token usage from your local Claude Code sessions · costs are estimates'}
         </div>
       </div>
     </div>
@@ -215,11 +240,8 @@ function LoadingSkeleton() {
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }`}</style>
       {[1, 2, 3].map(i => (
         <div key={i} style={{
-          height: '120px',
-          background: '#111111',
-          borderRadius: '12px',
-          marginBottom: '1rem',
-          border: '1px solid #222222',
+          height: '120px', background: '#111111', borderRadius: '12px',
+          marginBottom: '1rem', border: '1px solid #222222',
         }} />
       ))}
     </div>
