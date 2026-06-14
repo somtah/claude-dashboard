@@ -46,8 +46,9 @@ export default function TokenUsageTotal({ data }: Props) {
         total tokens
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-        <StatItem label="API equiv" value={`~$${(data?.estimatedCost || 0).toFixed(2)}`} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem' }}>
+        <StatItem label="USD equiv" value={`~$${(data?.estimatedCost || 0).toFixed(2)}`} />
+        <StatItem label="THB equiv" value={`~฿${Math.round((data?.estimatedCost || 0) * 33).toLocaleString()}`} color="#22c55e" />
         <StatItem label="Sessions" value={(data?.sessions || 0).toString()} />
         <StatItem label="Messages" value={formatTokens(data?.messages || 0)} />
       </div>
@@ -55,7 +56,7 @@ export default function TokenUsageTotal({ data }: Props) {
   )
 }
 
-function StatItem({ label, value }: { label: string; value: string }) {
+function StatItem({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div style={{
       background: '#0a0a0a',
@@ -64,7 +65,7 @@ function StatItem({ label, value }: { label: string; value: string }) {
       textAlign: 'center',
     }}>
       <div style={{ color: '#555555', fontSize: '0.6rem', marginBottom: '0.125rem' }}>{label}</div>
-      <div style={{ fontSize: '0.875rem', fontWeight: '600' }}>{value}</div>
+      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: color || 'white' }}>{value}</div>
     </div>
   )
 }

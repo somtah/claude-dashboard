@@ -46,7 +46,7 @@ export default function TokenUsageWeek({ data }: Props) {
         {formatTokens(data?.tokens || 0)}
       </div>
       <div style={{ color: '#555555', fontSize: '0.75rem', marginBottom: '0.75rem' }}>
-        ~${(data?.estimatedCost || 0).toFixed(2)} estimated
+        ~${(data?.estimatedCost || 0).toFixed(2)} · <span style={{ color: '#22c55e' }}>~฿{Math.round((data?.estimatedCost || 0) * 33).toLocaleString()}</span> estimated
       </div>
 
       <div className="week-stats-grid">
