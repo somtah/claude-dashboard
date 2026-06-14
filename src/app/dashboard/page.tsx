@@ -13,7 +13,7 @@ import SubscriptionSection from '@/components/SubscriptionSection'
 import ConnectDataModal from '@/components/ConnectDataModal'
 
 const CACHE_KEY = 'claude_usage_cache'
-const CACHE_TTL = 5 * 60 * 1000
+const CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 function isEmptyUsage(data: UsageData | null): boolean {
   if (!data) return true
@@ -22,11 +22,11 @@ function isEmptyUsage(data: UsageData | null): boolean {
 
 function getCachedData(): { data: UsageData; ts: number } | null {
   try {
-    const raw = sessionStorage.getItem(CACHE_KEY)
+    const raw = localStorage.getItem(CACHE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (Date.now() - parsed.ts > CACHE_TTL) {
-      sessionStorage.removeItem(CACHE_KEY)
+      localStorage.removeItem(CACHE_KEY)
       return null
     }
     return parsed
@@ -37,7 +37,7 @@ function getCachedData(): { data: UsageData; ts: number } | null {
 
 function setCachedData(data: UsageData) {
   try {
-    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }))
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }))
   } catch { /* ignore */ }
 }
 
@@ -95,7 +95,7 @@ export default function DashboardPage() {
   }
 
   async function handleRefresh() {
-    sessionStorage.removeItem(CACHE_KEY)
+    localStorage.removeItem(CACHE_KEY)
     setShowModal(false)
     await fetchData()
   }
