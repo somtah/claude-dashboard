@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { UsageData, AccountInfo } from '@/lib/types'
+import type { UsageData, AccountInfo } from '@/lib/types'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountSection from '@/components/AccountSection'
 import TokenUsageToday from '@/components/TokenUsageToday'
@@ -10,6 +10,36 @@ import TokenUsageWeek from '@/components/TokenUsageWeek'
 import UsageTrendChart from '@/components/UsageTrendChart'
 import ModelsSection from '@/components/ModelsSection'
 import SubscriptionSection from '@/components/SubscriptionSection'
+import ConnectLocalData from '@/components/ConnectLocalData'
+
+const CACHE_KEY = 'claude_usage_cache'
+const CACHE_TTL = 5 * 60 * 1000
+
+function isEmptyUsage(data: UsageData | null): boolean {
+  if (!data) return true
+  return data.total.tokens === 0 && data.total.sessions === 0
+}
+
+function getCachedData(): { data: UsageData; ts: number } | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (Date.now() - parsed.ts > CACHE_TTL) {
+      sessionStorage.removeItem(CACHE_KEY)
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function setCachedData(data: UsageData) {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }))
+  } catch { /* ignore */ }
+}
 
 export default function DashboardPage() {
   const [usageData, setUsageData] = useState<UsageData | null>(null)
@@ -24,8 +54,11 @@ export default function DashboardPage() {
         fetch('/api/usage'),
         fetch('/api/account'),
       ])
-
-      if (usageRes.ok) setUsageData(await usageRes.json())
+      if (usageRes.ok) {
+        const data: UsageData = await usageRes.json()
+        setUsageData(data)
+        if (!isEmptyUsage(data)) setCachedData(data)
+      }
       if (accountRes.ok) setAccountInfo(await accountRes.json())
       setLastUpdated(new Date())
     } catch (err) {
@@ -36,23 +69,45 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
+    const cached = getCachedData()
+    if (cached) {
+      setUsageData(cached.data)
+      setLastUpdated(new Date(cached.ts))
+      setLoading(false)
+      fetch('/api/account').then(r => r.ok ? r.json() : null).then(d => d && setAccountInfo(d))
+      return
+    }
     fetchData()
   }, [fetchData])
 
+  function handleClientDataLoaded(data: UsageData) {
+    setUsageData(data)
+    setLastUpdated(new Date())
+    setCachedData(data)
+  }
+
+  async function handleRefresh() {
+    sessionStorage.removeItem(CACHE_KEY)
+    await fetchData()
+  }
+
+  const showConnectPrompt = !loading && isEmptyUsage(usageData)
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#0a0a0a',
-      color: 'white',
-    }}>
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', color: 'white' }}>
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem' }}>
-        <DashboardHeader lastUpdated={lastUpdated} onRefresh={fetchData} loading={loading} />
+        <DashboardHeader lastUpdated={lastUpdated} onRefresh={handleRefresh} loading={loading} />
 
         {loading && !usageData ? (
           <LoadingSkeleton />
         ) : (
           <>
             <AccountSection account={accountInfo} />
+
+            {/* Connect prompt when no local data found (cloud deployment) */}
+            {showConnectPrompt && (
+              <ConnectLocalData onDataLoaded={handleClientDataLoaded} />
+            )}
 
             {/* Token Usage Row */}
             <div style={{
@@ -73,7 +128,7 @@ export default function DashboardPage() {
               gap: '1rem',
               marginBottom: '1rem',
             }}>
-              <UsageTrendChart data={usageData?.thisWeek.dailyBreakdown} />
+              <UsageTrendChart data={usageData?.thisWeek?.dailyBreakdown} />
               <ModelsSection models={usageData?.models} />
             </div>
 
@@ -82,7 +137,6 @@ export default function DashboardPage() {
           </>
         )}
 
-        {/* Footer */}
         <div style={{
           textAlign: 'center',
           color: '#555555',
@@ -102,7 +156,7 @@ function LoadingSkeleton() {
   return (
     <div style={{ animation: 'pulse 2s infinite' }}>
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }`}</style>
-      {[1,2,3].map(i => (
+      {[1, 2, 3].map(i => (
         <div key={i} style={{
           height: '120px',
           background: '#111111',
