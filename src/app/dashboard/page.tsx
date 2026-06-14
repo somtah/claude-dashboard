@@ -41,6 +41,7 @@ function setCachedData(data: UsageData, key = CACHE_KEY) {
 }
 
 export default function DashboardPage() {
+  const [mounted, setMounted] = useState(false)
   const [provider, setProvider] = useState<Provider>('claude')
   const [usageData, setUsageData] = useState<UsageData | null>(null)
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
@@ -49,6 +50,8 @@ export default function DashboardPage() {
   const [showClaudeModal, setShowClaudeModal] = useState(false)
   const [showORModal, setShowORModal] = useState(false)
   const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null)
+
+  useEffect(() => { setMounted(true) }, [])
 
   const refreshFromHandle = useCallback(async (handle: FileSystemDirectoryHandle) => {
     setLoading(true)
@@ -189,6 +192,9 @@ export default function DashboardPage() {
       else { localStorage.removeItem(CACHE_KEY); await fetchServerData() }
     }
   }
+
+  // Prevent hydration mismatch — don't render browser-API-dependent UI on server
+  if (!mounted) return <LoadingSkeleton />
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: 'white' }}>
