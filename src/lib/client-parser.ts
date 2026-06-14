@@ -215,3 +215,44 @@ export function isFileSystemAccessSupported(): boolean {
 export async function pickClaudeDirectory(): Promise<FileSystemDirectoryHandle> {
   return (window as any).showDirectoryPicker({ mode: 'read', id: 'claude-data' })
 }
+
+async function readJsonFile(dirHandle: FileSystemDirectoryHandle, filename: string): Promise<any> {
+  try {
+    const fileHandle = await (dirHandle as any).getFileHandle(filename)
+    const file = await fileHandle.getFile()
+    const text = await file.text()
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+export async function parseAccountFromDir(dirHandle: FileSystemDirectoryHandle): Promise<{ email: string; organization: string; plan: string }> {
+  let email = 'Unknown'
+  let organization = 'Unknown'
+  let plan = 'Pro'
+
+  // Try multiple files that might contain account info
+  const filesToTry = ['config.json', 'settings.json', '.credentials.json', 'account.json']
+
+  for (const filename of filesToTry) {
+    const data = await readJsonFile(dirHandle, filename)
+    if (!data) continue
+    email = data.email || data.userEmail || data.user_email || data.primaryEmail || email
+    organization = data.organizationName || data.organization || data.org || data.orgName || organization
+    plan = data.planType || data.plan || data.subscriptionType || data.tier || plan
+  }
+
+  // Try nested: ~/.claude/account/profile.json or similar
+  try {
+    const accountDir = await (dirHandle as any).getDirectoryHandle('account')
+    const profileData = await readJsonFile(accountDir, 'profile.json')
+    if (profileData) {
+      email = profileData.email || profileData.primaryEmail || email
+      organization = profileData.organizationName || profileData.organization || organization
+      plan = profileData.plan || profileData.planType || plan
+    }
+  } catch { /* no account dir */ }
+
+  return { email, organization, plan }
+}

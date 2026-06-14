@@ -53,9 +53,13 @@ export default function DashboardPage() {
   const refreshFromHandle = useCallback(async (handle: FileSystemDirectoryHandle) => {
     setLoading(true)
     try {
-      const { loadDataFromDirectory } = await import('@/lib/client-parser')
-      const data = await loadDataFromDirectory(handle)
+      const { loadDataFromDirectory, parseAccountFromDir } = await import('@/lib/client-parser')
+      const [data, account] = await Promise.all([
+        loadDataFromDirectory(handle),
+        parseAccountFromDir(handle),
+      ])
       setUsageData(data)
+      setAccountInfo(account)
       setLastUpdated(new Date())
       setCachedData(data)
     } catch (err) {
