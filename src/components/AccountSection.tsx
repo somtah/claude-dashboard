@@ -8,7 +8,7 @@ interface Props {
 export default function AccountSection({ account }: Props) {
   const { tr } = useLang()
   const email = account?.email
-  const showEmail = email && email !== 'Unknown'
+  const showEmail = email && email !== 'Unknown' && email !== 'OpenRouter' && email.includes('@')
   const plan = account?.plan || 'Pro'
 
   return (
